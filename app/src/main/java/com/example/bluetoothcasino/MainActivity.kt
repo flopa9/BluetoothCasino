@@ -4,106 +4,126 @@ package com.example.bluetoothcasino
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val Background = Color(0xFF07130F)
-private val Felt = Color(0xFF0D593B)
-private val Gold = Color(0xFFE8BD63)
-private val Cream = Color(0xFFFFF8E9)
-private val Muted = Color(0xFFB9C9C0)
-private val RedCard = Color(0xFFC83E4D)
+private val Bg = Color(0xFF07110E)
+private val Green = Color(0xFF0D563A)
+private val DarkGreen = Color(0xFF083B2B)
+private val Gold = Color(0xFFE9BD68)
+private val White = Color(0xFFFFF8E9)
+private val Red = Color(0xFFC83E4D)
 
-data class PlayingCard(val rank: String, val suit: String) {
-    val points: Int
-        get() = when (rank) {
-            "A" -> 11
-            "K", "Q", "J" -> 10
-            else -> rank.toInt()
-        }
-
-    val isRed: Boolean
-        get() = suit == "♥" || suit == "♦"
+data class CardData(val rank: String, val suit: String) {
+    val points: Int get() = when (rank) {
+        "A" -> 11
+        "K", "Q", "J" -> 10
+        else -> rank.toInt()
+    }
+    val red: Boolean get() = suit == "♥" || suit == "♦"
 }
 
-private fun newDeck(): List<PlayingCard> =
+private fun makeDeck() =
     listOf("♠", "♥", "♦", "♣").flatMap { suit ->
         listOf("A", "2", "3", "4", "5", "6", "7",
             "8", "9", "10", "J", "Q", "K").map {
-            PlayingCard(it, suit)
+            CardData(it, suit)
         }
     }.shuffled()
 
-private fun handScore(cards: List<PlayingCard>): Int {
-    var score = cards.sumOf { it.points }
+private fun score(cards: List<CardData>): Int {
+    var total = cards.sumOf { it.points }
     var aces = cards.count { it.rank == "A" }
-
-    while (score > 21 && aces > 0) {
-        score -= 10
+    while (total > 21 && aces > 0) {
+        total -= 10
         aces--
     }
-    return score
+    return total
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme {
-                BlackjackApp()
-            }
-        }
+        setContent { MaterialTheme { CasinoScreen() } }
     }
 }
 
 @Composable
-fun PlayingCardView(card: PlayingCard?, hidden: Boolean = false) {
+fun PlayerAvatar(emoji: String, name: String, chips: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(62.dp)
+                .background(Color(0xFF263C34), CircleShape)
+                .border(2.dp, Gold, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(emoji, fontSize = 34.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(name, color = White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(chips, color = Gold, fontSize = 11.sp)
+    }
+}
+
+@Composable
+fun PlayingCardView(card: CardData, hidden: Boolean = false) {
+    var revealed by remember { mutableStateOf(false) }
+    val flip by animateFloatAsState(
+        targetValue = if (hidden && !revealed) 180f else 0f,
+        animationSpec = tween(450),
+        label = "cardFlip"
+    )
+
     Box(
         modifier = Modifier
-            .width(59.dp)
-            .height(84.dp)
+            .width(53.dp)
+            .height(76.dp)
+            .graphicsLayer { rotationY = flip }
             .background(
-                if (hidden) Color(0xFF174B39) else Cream,
-                RoundedCornerShape(8.dp)
+                if (hidden && !revealed) DarkGreen else White,
+                RoundedCornerShape(7.dp)
             )
-            .border(
-                1.dp,
-                if (hidden) Gold else Color.LightGray,
-                RoundedCornerShape(8.dp)
-            )
-            .padding(5.dp),
+            .border(1.dp, Gold, RoundedCornerShape(7.dp))
+            .padding(4.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (hidden || card == null) {
-            Text("★", color = Gold, fontSize = 28.sp)
+        if (hidden && !revealed) {
+            Text("♠", color = Gold, fontSize = 27.sp)
         } else {
-            val cardColor = if (card.isRed) RedCard else Color(0xFF17251F)
+            val color = if (card.red) Red else Color(0xFF17251F)
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     "${card.rank}${card.suit}",
-                    color = cardColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
+                    color = color,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
                 )
                 Text(
                     card.suit,
-                    color = cardColor,
-                    fontSize = 27.sp,
+                    color = color,
+                    fontSize = 24.sp,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
             }
@@ -112,53 +132,58 @@ fun PlayingCardView(card: PlayingCard?, hidden: Boolean = false) {
 }
 
 @Composable
-fun HandRow(cards: List<PlayingCard>, hideSecond: Boolean = false) {
+fun AnimatedHand(cards: List<CardData>, hideSecond: Boolean = false) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        horizontalArrangement = Arrangement.spacedBy((-8).dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         cards.forEachIndexed { index, card ->
-            PlayingCardView(
-                card = card,
-                hidden = hideSecond && index == 1
-            )
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(tween(400)) +
+                    slideInVertically(
+                        initialOffsetY = { it / 2 },
+                        animationSpec = tween(450)
+                    )
+            ) {
+                PlayingCardView(card, hideSecond && index == 1)
+            }
         }
     }
 }
 
 @Composable
-fun BlackjackApp() {
+fun CasinoScreen() {
     var balance by remember { mutableIntStateOf(10000) }
     var bet by remember { mutableIntStateOf(0) }
-    var deck by remember { mutableStateOf(newDeck()) }
-    var playerCards by remember { mutableStateOf(emptyList<PlayingCard>()) }
-    var dealerCards by remember { mutableStateOf(emptyList<PlayingCard>()) }
+    var deck by remember { mutableStateOf(makeDeck()) }
+    var playerCards by remember { mutableStateOf(emptyList<CardData>()) }
+    var dealerCards by remember { mutableStateOf(emptyList<CardData>()) }
     var started by remember { mutableStateOf(false) }
     var finished by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("Выбери ставку и начни игру") }
+    var message by remember { mutableStateOf("Выбери ставку") }
 
-    val playerScore = handScore(playerCards)
-    val dealerScore = handScore(dealerCards)
+    val playerScore = score(playerCards)
+    val dealerScore = score(dealerCards)
 
-    fun drawCard(): PlayingCard {
-        if (deck.isEmpty()) deck = newDeck()
+    fun draw(): CardData {
+        if (deck.isEmpty()) deck = makeDeck()
         val card = deck.first()
         deck = deck.drop(1)
         return card
     }
 
-    fun finishRound() {
-        while (handScore(dealerCards) < 17) {
-            dealerCards = dealerCards + drawCard()
+    fun finish() {
+        while (score(dealerCards) < 17) {
+            dealerCards = dealerCards + draw()
         }
-
-        val p = handScore(playerCards)
-        val d = handScore(dealerCards)
+        val p = score(playerCards)
+        val d = score(dealerCards)
 
         message = when {
-            p > 21 -> "Перебор! Дилер победил"
-            d > 21 -> "Дилер перебрал! Ты выиграл"
-            p > d -> "Ты выиграл!"
+            p > 21 -> "Перебор!"
+            d > 21 -> "Ты выиграл!"
+            p > d -> "Победа!"
             p < d -> "Дилер победил"
             else -> "Ничья!"
         }
@@ -168,48 +193,42 @@ fun BlackjackApp() {
             d > 21 || p > d -> balance += bet * 2
             p == d -> balance += bet
         }
-
         finished = true
     }
 
-    fun startRound() {
+    fun start() {
         if (bet <= 0) {
             message = "Сначала выбери ставку"
             return
         }
         if (bet > balance) {
-            message = "Недостаточно фишек"
+            message = "Не хватает фишек"
             return
         }
-
         balance -= bet
-        deck = newDeck()
-        playerCards = listOf(drawCard(), drawCard())
-        dealerCards = listOf(drawCard(), drawCard())
+        deck = makeDeck()
+        playerCards = listOf(draw(), draw())
+        dealerCards = listOf(draw(), draw())
         started = true
         finished = false
-        message = "Твой ход!"
+        message = "Твой ход"
     }
 
     fun hit() {
         if (!started || finished) return
-        playerCards = playerCards + drawCard()
-        if (handScore(playerCards) >= 21) {
-            finishRound()
-        }
+        playerCards = playerCards + draw()
+        if (score(playerCards) >= 21) finish()
     }
 
     fun stand() {
-        if (!started || finished) return
-        finishRound()
+        if (started && !finished) finish()
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Background)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .background(Bg)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
@@ -218,106 +237,110 @@ fun BlackjackApp() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    "BLACKJACK",
-                    color = Gold,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Black
-                )
-                Text("21 • Классическая игра", color = Muted, fontSize = 12.sp)
+                Text("BLACKJACK", color = Gold, fontSize = 23.sp,
+                    fontWeight = FontWeight.Black)
+                Text("VIP TABLE", color = White.copy(alpha = 0.6f),
+                    fontSize = 10.sp, letterSpacing = 3.sp)
             }
-
             Column(horizontalAlignment = Alignment.End) {
-                Text("ТВОИ ФИШКИ", color = Muted, fontSize = 11.sp)
-                Text(
-                    balance.toString(),
-                    color = Gold,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("БАЛАНС", color = White.copy(alpha = 0.6f), fontSize = 10.sp)
+                Text("$balance", color = Gold, fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold)
             }
         }
 
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(12.dp))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Felt, RoundedCornerShape(24.dp))
-                .border(2.dp, Gold, RoundedCornerShape(24.dp))
-                .padding(16.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    "ДИЛЕР",
-                    color = Cream,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                .weight(1f)
+                .background(
+                    Color(0xFF111D18),
+                    RoundedCornerShape(30.dp)
                 )
+                .border(1.dp, Gold.copy(alpha = 0.6f), RoundedCornerShape(30.dp))
+                .padding(10.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Green, RoundedCornerShape(100.dp))
+                    .border(3.dp, Gold.copy(alpha = 0.7f), RoundedCornerShape(100.dp))
+                    .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("ДИЛЕР", color = Gold, fontSize = 10.sp,
+                    letterSpacing = 3.sp, fontWeight = FontWeight.Bold)
 
-                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .background(Color(0xFF253A31), CircleShape)
+                        .border(2.dp, Gold, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("👩🏻‍💼", fontSize = 43.sp)
+                }
+
+                Text("Анастасия", color = White, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
 
                 if (dealerCards.isEmpty()) {
-                    Text("Ожидание игры", color = Muted)
+                    Text("Карты дилера", color = White.copy(alpha = 0.6f))
                 } else {
-                    HandRow(
+                    AnimatedHand(
                         dealerCards,
                         hideSecond = started && !finished
                     )
-                    Spacer(Modifier.height(6.dp))
                     Text(
                         if (started && !finished)
                             "Очки: ${dealerCards.first().points}"
                         else "Очки: $dealerScore",
-                        color = Cream
+                        color = White,
+                        fontSize = 12.sp
                     )
                 }
 
-                Spacer(Modifier.height(24.dp))
-                HorizontalDivider(color = Gold.copy(alpha = 0.5f))
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.weight(1f))
 
-                Text(
-                    "ТВОИ КАРТЫ",
-                    color = Cream,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PlayerAvatar("👨🏻", "Игрок 1", "10 000")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("BLACKJACK", color = Gold, fontSize = 12.sp,
+                            fontWeight = FontWeight.Black)
+                        Text("21", color = White, fontSize = 30.sp,
+                            fontWeight = FontWeight.Black)
+                    }
+                    PlayerAvatar("👨🏼", "Игрок 2", "10 000")
+                }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.weight(1f))
 
                 if (playerCards.isEmpty()) {
-                    Text("Здесь появятся твои карты", color = Muted)
+                    Text("ТВОИ КАРТЫ", color = Gold, fontSize = 12.sp)
+                    Text("Ожидаем раздачу", color = White.copy(alpha = 0.7f))
                 } else {
-                    HandRow(playerCards)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Очки: $playerScore",
-                        color = Cream,
-                        fontWeight = FontWeight.Bold
-                    )
+                    AnimatedHand(playerCards)
+                    Text("Твои очки: $playerScore", color = White,
+                        fontWeight = FontWeight.Bold)
                 }
 
-                Spacer(Modifier.height(18.dp))
-
-                Text(
-                    message,
-                    color = Gold,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Spacer(Modifier.height(8.dp))
+                Text(message, color = Gold, fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp)
             }
         }
 
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Text(
-            "ВЫБЕРИ СТАВКУ",
-            color = Cream,
-            fontWeight = FontWeight.Bold
-        )
+        Text("ВЫБЕРИ СТАВКУ", color = White, fontWeight = FontWeight.Bold)
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -325,33 +348,22 @@ fun BlackjackApp() {
         ) {
             listOf(100, 500, 1000).forEach { amount ->
                 Button(
-                    onClick = {
-                        if (!started && balance >= amount) {
-                            bet = amount
-                        }
-                    },
+                    onClick = { if (!started && balance >= amount) bet = amount },
                     enabled = !started && balance >= amount,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Gold,
-                        contentColor = Background
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                        containerColor = if (bet == amount) Gold else DarkGreen,
+                        contentColor = White
+                    )
                 ) {
-                    Text(amount.toString(), fontWeight = FontWeight.Bold)
+                    Text("$amount", fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Text("Ставка: $bet фишек", color = Gold, fontSize = 13.sp)
 
-        Text(
-            "Текущая ставка: $bet фишек",
-            color = Gold,
-            fontSize = 16.sp
-        )
-
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(8.dp))
 
         if (!started || finished) {
             Button(
@@ -362,67 +374,44 @@ fun BlackjackApp() {
                         playerCards = emptyList()
                         dealerCards = emptyList()
                         bet = 0
-                        message = "Выбери ставку и начни игру"
-                    } else {
-                        startRound()
-                    }
+                        message = "Выбери ставку"
+                    } else start()
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Gold,
-                    contentColor = Background
-                ),
-                shape = RoundedCornerShape(16.dp)
+                    contentColor = Bg
+                )
             ) {
                 Text(
                     if (finished) "СЛЕДУЮЩИЙ РАУНД" else "НАЧАТЬ ИГРУ",
                     fontWeight = FontWeight.Black,
-                    fontSize = 17.sp
+                    fontSize = 16.sp
                 )
             }
         } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = { hit() },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(58.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Gold,
-                        contentColor = Background
-                    ),
-                    shape = RoundedCornerShape(14.dp)
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Gold,
+                        contentColor = Bg)
                 ) {
                     Text("ЕЩЁ КАРТУ", fontWeight = FontWeight.Bold)
                 }
-
                 Button(
                     onClick = { stand() },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(58.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF244C3D),
-                        contentColor = Cream
-                    ),
-                    shape = RoundedCornerShape(14.dp)
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkGreen,
+                        contentColor = White)
                 ) {
                     Text("СТОП", fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        Spacer(Modifier.height(20.dp))
-
-        Text(
-            "Только виртуальные фишки • Без реальных денег",
-            color = Muted,
-            fontSize = 11.sp
-        )
+        Spacer(Modifier.height(5.dp))
+        Text("Только виртуальные фишки", color = White.copy(alpha = 0.5f),
+            fontSize = 10.sp)
     }
 }
