@@ -41,7 +41,8 @@ jobs:
           git add -A -- . ':!.github/workflows/build.yml'
           git reset -- '*.zip' || true
           if ! git diff --cached --quiet; then
-            git commit -m "Extract Android project from ZIP"
-            git push
+          git commit -m "Extract Android project from ZIP"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push
           fi
           
