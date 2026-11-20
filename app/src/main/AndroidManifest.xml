@@ -33,6 +33,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
+            android:screenOrientation="landscape"
             android:name=".MainActivity"
             android:exported="true">
 
