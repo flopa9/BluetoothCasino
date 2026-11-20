@@ -1,29 +1,16 @@
 
 package com.example.bluetoothcasino
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothServerSocket
-import android.bluetooth.BluetoothSocket
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -31,530 +18,446 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.IOException
-import java.util.UUID
+import kotlinx.coroutines.delay
+import kotlin.random.Random
 
-private val APP_UUID: UUID =
-    UUID.fromString("b7e4a3d2-7c91-4d8e-9f12-6a5b4c3d2e10")
+private val Felt = Color(0xFF075B43)
+private val Gold = Color(0xFFFFD36A)
+private val Dark = Color(0xFF082B23)
 
 class MainActivity : ComponentActivity() {
-
-    private var bluetoothAdapter: BluetoothAdapter? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation =
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
-        val manager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        bluetoothAdapter = manager.adapter
+        window.statusBarColor = android.graphics.Color.rgb(8, 43, 35)
+        window.navigationBarColor = android.graphics.Color.rgb(8, 43, 35)
 
         setContent {
             MaterialTheme {
-                BluetoothScreen(
-                    activity = this,
-                    adapter = bluetoothAdapter
-                )
+                CardGame()
             }
         }
     }
 }
 
-@Composable
-private fun BluetoothScreen(
-    activity: Activity,
-    adapter: BluetoothAdapter?
-) {
-    val context = activity
-    val scope = rememberCoroutineScope()
+data class PlayingCard(
+    val rank: String,
+    val suit: String,
+    val value: Int,
+    val id: Int
+)
 
-    var status by remember {
-        mutableStateOf("Bluetooth готов к настройке")
-    }
+data class GameState(
+    val deck: List<PlayingCard>,
+    val player: List<PlayingCard>,
+    val dealer: List<PlayingCard>,
+    val finished: Boolean,
+    val message: String
+)
 
-    var devices by remember {
-        mutableStateOf<List<BluetoothDevice>>(emptyList())
-    }
+private fun createDeck(): List<PlayingCard> {
+    val suits = listOf("♠", "♥", "♦", "♣")
+    val ranks = listOf(
+        "2", "3", "4", "5", "6", "7",
+        "8", "9", "10", "J", "Q", "K", "A"
+    )
 
-    var connectedName by remember {
-        mutableStateOf("")
-    }
+    val cards = mutableListOf<PlayingCard>()
+    var id = 0
 
-    var socket by remember {
-        mutableStateOf<BluetoothSocket?>(null)
-    }
-
-    var serverSocket by remember {
-        mutableStateOf<BluetoothServerSocket?>(null)
-    }
-
-    var discovering by remember {
-        mutableStateOf(false)
-    }
-
-    var permissionGranted by remember {
-        mutableStateOf(false)
-    }
-
-    val requiredPermissions = remember {
-        if (Build.VERSION.SDK_INT >= 31) {
-            arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
-        } else {
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
-        }
-    }
-
-    val permissionLauncher =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { result ->
-            permissionGranted =
-                requiredPermissions.all {
-                    result[it] == true ||
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            it
-                        ) == PackageManager.PERMISSION_GRANTED
-                }
-
-            status = if (permissionGranted) {
-                "Разрешения получены"
-            } else {
-                "Нужны разрешения Bluetooth"
+    for (suit in suits) {
+        for (rank in ranks) {
+            val value = when (rank) {
+                "J", "Q", "K" -> 10
+                "A" -> 11
+                else -> rank.toInt()
             }
-        }
 
-    fun checkPermissions(): Boolean {
-        return requiredPermissions.all {
-            ContextCompat.checkSelfPermission(
-                context,
-                it
-            ) == PackageManager.PERMISSION_GRANTED
+            cards.add(PlayingCard(rank, suit, value, id++))
         }
     }
 
-    fun requestPermissions() {
-        if (checkPermissions()) {
-            permissionGranted = true
+    return cards.shuffled()
+}
+
+private fun score(cards: List<PlayingCard>): Int {
+    var result = cards.sumOf { it.value }
+    var aces = cards.count { it.rank == "A" }
+
+    while (result > 21 && aces > 0) {
+        result -= 10
+        aces--
+    }
+
+    return result
+}
+
+private fun newGame(): GameState {
+    val deck = createDeck()
+
+    return GameState(
+        deck = deck.drop(4),
+        player = listOf(deck[0], deck[2]),
+        dealer = listOf(deck[1], deck[3]),
+        finished = false,
+        message = "Ваш ход"
+    )
+}
+
+private fun drawCard(game: GameState): Pair<PlayingCard, List<PlayingCard>> {
+    val card = game.deck.first()
+    return card to game.deck.drop(1)
+}
+
+@Composable
+fun CardGame() {
+    var game by remember { mutableStateOf(newGame()) }
+    var showDealerCard by remember { mutableStateOf(false) }
+
+    fun finishGame(current: GameState): GameState {
+        var dealerCards = current.dealer
+        var deck = current.deck
+
+        while (score(dealerCards) < 17 && deck.isNotEmpty()) {
+            val card = deck.first()
+            dealerCards = dealerCards + card
+            deck = deck.drop(1)
+        }
+
+        val playerScore = score(current.player)
+        val dealerScore = score(dealerCards)
+
+        val result = when {
+            playerScore > 21 -> "Перебор! Раздатчица победила"
+            dealerScore > 21 -> "Победа! У раздатчицы перебор"
+            playerScore > dealerScore -> "Вы победили!"
+            playerScore < dealerScore -> "Победила раздатчица"
+            else -> "Ничья!"
+        }
+
+        return current.copy(
+            dealer = dealerCards,
+            deck = deck,
+            finished = true,
+            message = result
+        )
+    }
+
+    fun hit() {
+        if (game.finished || game.deck.isEmpty()) return
+
+        val (card, remaining) = drawCard(game)
+        val updated = game.copy(
+            player = game.player + card,
+            deck = remaining
+        )
+
+        game = if (score(updated.player) > 21) {
+            finishGame(updated)
         } else {
-            permissionLauncher.launch(requiredPermissions)
+            updated
         }
+
+        if (game.finished) showDealerCard = true
     }
 
-    val receiver = remember {
-        object : BroadcastReceiver() {
-            @SuppressLint("MissingPermission")
-            override fun onReceive(
-                context: Context?,
-                intent: Intent?
-            ) {
-                when (intent?.action) {
-                    BluetoothDevice.ACTION_FOUND -> {
-                        val device =
-                            if (Build.VERSION.SDK_INT >= 33) {
-                                intent.getParcelableExtra(
-                                    BluetoothDevice.EXTRA_DEVICE,
-                                    BluetoothDevice::class.java
-                                )
-                            } else {
-                                @Suppress("DEPRECATION")
-                                intent.getParcelableExtra(
-                                    BluetoothDevice.EXTRA_DEVICE
-                                )
-                            }
+    fun stand() {
+        if (game.finished) return
+        showDealerCard = true
+        game = finishGame(game)
+    }
 
-                        if (device != null) {
-                            devices = (devices + device)
-                                .distinctBy { it.address }
+    fun restart() {
+        showDealerCard = false
+        game = newGame()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Dark)
+            .padding(10.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Felt, RoundedCornerShape(24.dp))
+                .border(2.dp, Gold, RoundedCornerShape(24.dp))
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "BLACKJACK",
+                    color = Gold,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black
+                )
+
+                Text(
+                    "КАРТОЧНАЯ ИГРА",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp
+                )
+
+                TextButton(onClick = { restart() }) {
+                    Text("НОВАЯ ИГРА", color = Gold)
+                }
+            }
+
+            Spacer(Modifier.height(5.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Avatar(
+                    emoji = "👩🏻‍💼",
+                    name = "РАЗДАТЧИЦА"
+                )
+
+                Spacer(Modifier.width(18.dp))
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (showDealerCard) "КАРТЫ РАЗДАТЧИЦЫ"
+                        else "КАРТЫ РАЗДАТЧИЦЫ",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(game.dealer, key = { it.id }) { card ->
+                            PlayingCardView(
+                                card = card,
+                                hidden = !showDealerCard &&
+                                    card == game.dealer.last()
+                            )
                         }
                     }
 
-                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                        discovering = false
-                        status = "Поиск завершён"
-                    }
-
-                    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                        status = "Статус сопряжения изменён"
-                    }
-                }
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        val filter = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_FOUND)
-            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-        }
-
-        if (Build.VERSION.SDK_INT >= 33) {
-            context.registerReceiver(
-                receiver,
-                filter,
-                Context.RECEIVER_NOT_EXPORTED
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            context.registerReceiver(receiver, filter)
-        }
-
-        onDispose {
-            try {
-                context.unregisterReceiver(receiver)
-            } catch (_: Exception) {
-            }
-
-            try {
-                adapter?.cancelDiscovery()
-                socket?.close()
-                serverSocket?.close()
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    fun enableBluetooth() {
-        if (adapter == null) {
-            status = "На устройстве нет Bluetooth"
-            return
-        }
-
-        if (!checkPermissions()) {
-            requestPermissions()
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            val intent = Intent(
-                BluetoothAdapter.ACTION_REQUEST_ENABLE
-            )
-            activity.startActivity(intent)
-        } else {
-            status = "Bluetooth включён"
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun startDiscovery() {
-        if (adapter == null) {
-            status = "Bluetooth недоступен"
-            return
-        }
-
-        if (!checkPermissions()) {
-            requestPermissions()
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            status = "Сначала включи Bluetooth"
-            return
-        }
-
-        devices = emptyList()
-        discovering = true
-        status = "Ищем телефоны..."
-
-        try {
-            adapter.cancelDiscovery()
-            adapter.startDiscovery()
-        } catch (e: Exception) {
-            discovering = false
-            status = "Ошибка поиска: ${e.message}"
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun showPairedDevices() {
-        if (!checkPermissions()) {
-            requestPermissions()
-            return
-        }
-
-        try {
-            devices = adapter?.bondedDevices?.toList() ?: emptyList()
-            status = "Сопряжённые устройства"
-        } catch (e: Exception) {
-            status = "Ошибка: ${e.message}"
-        }
-    }
-
-    fun createRoom() {
-        if (adapter == null) {
-            status = "Bluetooth недоступен"
-            return
-        }
-
-        if (!checkPermissions()) {
-            requestPermissions()
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            status = "Сначала включи Bluetooth"
-            return
-        }
-
-        val discoverableIntent = Intent(
-            BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE
-        ).apply {
-            putExtra(
-                BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION,
-                300
-            )
-        }
-
-        activity.startActivity(discoverableIntent)
-
-        scope.launch {
-            try {
-                status = "Создаём комнату..."
-
-                val server = withContext(Dispatchers.IO) {
-                    adapter.listenUsingRfcommWithServiceRecord(
-                        "BluetoothMultiplayer",
-                        APP_UUID
+                    Text(
+                        if (showDealerCard) "Очки: ${score(game.dealer)}"
+                        else "Очки: ?",
+                        color = Gold,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-
-                serverSocket = server
-                status = "Комната создана. Ждём игрока..."
-
-                val accepted = withContext(Dispatchers.IO) {
-                    server.accept()
-                }
-
-                socket = accepted
-                serverSocket = null
-
-                connectedName = try {
-                    accepted.remoteDevice.name ?: "Игрок"
-                } catch (_: Exception) {
-                    "Игрок"
-                }
-
-                status = "Подключён: $connectedName"
-
-            } catch (e: Exception) {
-                status = "Ошибка комнаты: ${e.message}"
             }
-        }
-    }
 
-    @SuppressLint("MissingPermission")
-    fun connectToDevice(device: BluetoothDevice) {
-        if (!checkPermissions()) {
-            requestPermissions()
-            return
-        }
+            Spacer(Modifier.weight(1f))
 
-        if (adapter == null) return
+            Text(
+                game.message,
+                color = if (game.finished) Gold else Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
 
-        scope.launch {
-            try {
-                status = "Подключаемся..."
+            Spacer(Modifier.height(8.dp))
 
-                adapter.cancelDiscovery()
-
-                val newSocket = withContext(Dispatchers.IO) {
-                    device.createRfcommSocketToServiceRecord(APP_UUID)
-                        .also { it.connect() }
-                }
-
-                socket = newSocket
-                connectedName = device.name ?: "Игрок"
-                status = "Подключён: $connectedName"
-
-            } catch (e: Exception) {
-                status = "Не удалось подключиться: ${e.message}"
-            }
-        }
-    }
-
-    fun disconnect() {
-        try {
-            socket?.close()
-            serverSocket?.close()
-        } catch (_: IOException) {
-        }
-
-        socket = null
-        serverSocket = null
-        connectedName = ""
-        status = "Отключено"
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF10151D))
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(24.dp))
-
-        Text(
-            text = "BLUETOOTH",
-            color = Color.White,
-            fontSize = 30.sp
-        )
-
-        Text(
-            text = "Мультиплеер",
-            color = Color(0xFF54D6A0),
-            fontSize = 18.sp
-        )
-
-        Spacer(Modifier.height(28.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF202B38)
-            ),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Состояние",
-                    color = Color.LightGray,
-                    fontSize = 14.sp
+                Avatar(
+                    emoji = "🧑🏻",
+                    name = "ИГРОК"
                 )
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.width(18.dp))
 
-                Text(
-                    text = status,
-                    color = Color.White,
-                    fontSize = 17.sp
-                )
-            }
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        GameButton(
-            text = "Включить Bluetooth",
-            onClick = { enableBluetooth() }
-        )
-
-        GameButton(
-            text = "Создать комнату",
-            onClick = { createRoom() }
-        )
-
-        GameButton(
-            text = if (discovering) {
-                "Идёт поиск..."
-            } else {
-                "Найти телефоны"
-            },
-            onClick = { startDiscovery() }
-        )
-
-        GameButton(
-            text = "Мои устройства",
-            onClick = { showPairedDevices() }
-        )
-
-        GameButton(
-            text = "Отключиться",
-            onClick = { disconnect() }
-        )
-
-        Spacer(Modifier.height(18.dp))
-
-        Text(
-            text = "НАЙДЕННЫЕ УСТРОЙСТВА",
-            color = Color(0xFF54D6A0),
-            fontSize = 15.sp
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            items(
-                items = devices,
-                key = { it.address }
-            ) { device ->
-
-                val name = try {
-                    device.name ?: "Неизвестное устройство"
-                } catch (_: SecurityException) {
-                    "Устройство"
-                }
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 5.dp)
-                        .clickable {
-                            connectToDevice(device)
-                        },
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF263747)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "ВАШИ КАРТЫ",
+                        color = Color.White,
+                        fontSize = 13.sp
                     )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp)
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = name,
-                            color = Color.White
-                        )
-
-                        Text(
-                            text = device.address,
-                            color = Color.LightGray,
-                            fontSize = 12.sp
-                        )
-
-                        Text(
-                            text = "Нажми для подключения",
-                            color = Color(0xFF54D6A0),
-                            fontSize = 12.sp
-                        )
+                        items(game.player, key = { it.id }) { card ->
+                            PlayingCardView(card = card)
+                        }
                     }
+
+                    Text(
+                        "Очки: ${score(game.player)}",
+                        color = Gold,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GameAction(
+                    text = "ВЗЯТЬ КАРТУ",
+                    enabled = !game.finished,
+                    onClick = { hit() }
+                )
+
+                GameAction(
+                    text = "ХВАТИТ",
+                    enabled = !game.finished,
+                    onClick = { stand() }
+                )
+
+                GameAction(
+                    text = "НОВАЯ РАЗДАЧА",
+                    enabled = game.finished,
+                    onClick = { restart() }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun GameButton(
+fun Avatar(
+    emoji: String,
+    name: String
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(100.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(66.dp)
+                .background(
+                    Color(0xFF123D32),
+                    RoundedCornerShape(50)
+                )
+                .border(2.dp, Gold, RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(emoji, fontSize = 38.sp)
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        Text(
+            name,
+            color = Gold,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun PlayingCardView(
+    card: PlayingCard,
+    hidden: Boolean = false
+) {
+    var visible by remember(card.id) { mutableStateOf(false) }
+
+    LaunchedEffect(card.id) {
+        delay(40)
+        visible = true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + slideInVertically(
+            initialOffsetY = { it / 2 }
+        )
+    ) {
+        if (hidden) {
+            Box(
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(68.dp)
+                    .background(
+                        Color(0xFF173B85),
+                        RoundedCornerShape(7.dp)
+                    )
+                    .border(
+                        2.dp,
+                        Color.White,
+                        RoundedCornerShape(7.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("★", color = Gold, fontSize = 25.sp)
+            }
+        } else {
+            val red = card.suit == "♥" || card.suit == "♦"
+
+            Column(
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(68.dp)
+                    .background(Color.White, RoundedCornerShape(7.dp))
+                    .border(
+                        1.dp,
+                        Color.LightGray,
+                        RoundedCornerShape(7.dp)
+                    )
+                    .padding(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    card.rank,
+                    color = if (red) Color.Red else Color.Black,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    card.suit,
+                    color = if (red) Color.Red else Color.Black,
+                    fontSize = 22.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun GameAction(
     text: String,
+    enabled: Boolean,
     onClick: () -> Unit
 ) {
     Button(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 5.dp)
-            .height(52.dp),
-        shape = RoundedCornerShape(12.dp),
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFF176B50)
-        )
+            containerColor = Color(0xFF123D32),
+            contentColor = Gold,
+            disabledContainerColor = Color.DarkGray,
+            disabledContentColor = Color.LightGray
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.height(46.dp)
     ) {
         Text(
-            text = text,
-            fontSize = 16.sp
+            text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
         )
     }
 }
